@@ -1,26 +1,34 @@
 # Project Write-Up
 
-I used [faster_rcnn_inception_v2_coco](http://download.tensorflow.org/models/object_detection/faster_rcnn_inception_v2_coco_2018_01_28.tar.gz) from tensorflow object detection api and the results came almost similar to the intel pre-trainde model [person-detection-retail-0013](https://docs.openvinotoolkit.org/2020.3/_models_intel_person_detection_retail_0013_description_person_detection_retail_0013.html).
+I used [faster_rcnn_inception_v2_coco](http://download.tensorflow.org/models/object_detection/faster_rcnn_inception_v2_coco_2018_01_28.tar.gz) from tensorflow object detection api and I got the expected result.
 
+## Explaining Custom Layers
+
+Custom layers are layers that are not included in a list of known layers. If my model contains any layers that are not in the list of known layers, the Model Optimizer classifies them as custom and it has to be handled separately.
+
+As the faster_rcnn_inception_v2_coco belongs to the frozen topologies from TensorFlow Object Detection Models Zoo and there are no custom layers in it. The model is converted to IR representation by using model optimizer without custom layers as all the layers are in the known list of layers.
 
 ## Comparing Model Performance
 
 The below table will compare the models before and after conversion to Intermediate Representation along with intel pre-trained model.
 
+#### [NOTE: The intel pretrained model(person-detection-retail-0013) is used just to comapare as an extra, my choosen model is faster_rcnn_inception_v2_coco]
+
 | Models| Total people count|Average Duration| inference time /frame | Totoal inference time | Frames skip rate | Threshold | Precision | Size |
 | ------------- |:-------------:| :-----:| :-----: | :----: |  :-----: | :----: | :----: | :----: |
-|person-detection-retail-0013| 6 | 17.92 sec | 0.11 sec |  0.50 min | 4 | 0.6 | fp16 | 1.52mb |
-|faster_rcnn_inception_v2_coco(after conversion to IR)| 6 | 18.58 sec | 0.96 sec | 4.43 min | 4 | 0.8 | fp16 | 25.5mb* |
+|person-detection-retail-0013| 6 | 17.92 sec | 0.12 sec |  0.55 min | 4 | 0.6 | fp16 | 1.52mb |
+|faster_rcnn_inception_v2_coco(after conversion to IR)| 6 | 18.58 sec | 1.04 sec | 4.81 min | 4 | 0.8 | fp16 | 25.5mb* |
 |faster_rcnn_inception_v2_coco(before conversion to IR)| 6 | 18.67 sec | 1.39 sec | 6.43 min | 4 | 0.8 | fp32 | 166mb |
 
 **Only frozen_inference_graph.xml and frozen_inference_graph.bin are taken into account*
+
 
 - The faster rcnn model is huge and it takes a lot of inference time. So to make it faster without compromising the results I developed the method of skipping some frames between two frames which are fed into the model.
 (To make it easier to judge I applied the method of skipping frames even for Intel pre-trained model even though it takes less inference time)
 
 - Now talking about the model performance it can be seen that all 3 models perform same in terms of total people count or average duration but when it comes to inference time the Intel pre-trained model is the winner.
 
-- Comparing the pre and post IR faster_rcnn_inception_v2_coco models the IR decreases the total inference time by 2 minutes from 6.43 min to 4.43 min without compromising the accuracy of the model and also decreases the size of the model by 144mb to 25.5mb.
+- Comparing the pre and post IR of faster_rcnn_inception_v2_coco models the IR decreases the total inference time by 2 minutes from 6.43 min to 4.81 min without compromising the accuracy of the model and also decreases the size of the model by 144mb to 25.5mb.
 
 - The inference time and the size of the model is the key when deploying pipeline in edge devices and openvino helps to achieve this without compromising the result.
 
@@ -51,7 +59,7 @@ deployed edge model. The potential effects of each of these are as follows...
  
 ## Model Research
 
-### 1. faster_rcnn_inception_v2_coco:
+### faster_rcnn_inception_v2_coco:
 
 I was able to achieve the correct prediction in terms of people count, total and average duration by using TensorFlow object detection API model faster_rcnn_inception_v2_coco.
 
@@ -91,26 +99,6 @@ Store the result .xml and .bin files in the faster_rcnn_inception_v2_coco direct
 python /opt/intel/openvino/deployment_tools/model_optimizer/mo.py --input_model frozen_inference_graph.pb --tensorflow_object_detection_api_pipeline_config pipeline.config --reverse_input_channels --data_type FP16 --tensorflow_use_custom_operations_config /opt/intel/openvino/deployment_tools/model_optimizer/extensions/front/tf/faster_rcnn_support.json  -o /home/workspace/models/faster_rcnn_inception_v2_coco
 ```
 After converting the model there is no need of the original model and it can be deleted by deleting the download folder.
-
-### 2. person-detection-retail-0013:
-
-Link to documentation of [person-detection-retail-0013](https://docs.openvinotoolkit.org/2020.3/_models_intel_person_detection_retail_0013_description_person_detection_retail_0013.html)
-
-To download the person detection retail 0013 which is an intel pre-trained model. Change the directory to the below directory.
-
-```
-cd /opt/intel/openvino/deployment_tools/open_model_zoo/tools/downloader
-```
-Source the environnment
-
-```
-source /opt/intel/openvino/bin/setupvars.sh -pyver 3.5
-```
-
-Run the below script to download the FP16 precision model in the models directory.
-```
-sudo ./downloader.py --name person-detection-retail-0013 --precisions FP16 -o /home/workspace/models
-```
 
 ## Run the application
 
@@ -169,7 +157,7 @@ When running Intel® Distribution of OpenVINO™ toolkit Python applications on 
 /opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/
 ```
 
-*Depending on whether you are using Linux or Mac, the filename will be either `libcpu_extension_sse4.so` or `libcpu_extension.dylib`, respectively.* (The Linux filename may be different if you are using a AVX architecture)
+*Depending on whether you are using Linux or Mac, the filename will be either `libcpu_extension_sse4.so` or `libcpu_extension.dylib`, respectively.* (The Linux filename may be different if you are using an AVX architecture)
 
 *Though by default application runs on CPU, this can also be explicitly specified by ```-d CPU``` command-line argument*
 
@@ -177,17 +165,19 @@ When running Intel® Distribution of OpenVINO™ toolkit Python applications on 
 
 *The argument ```-pt``` called probability threshold which will help in discarding the frames below that threshold.*
 
+#### To run the faster_rcnn_inception_v2_coco(single image mode)
+
+```
+python main.py -i resources/single_image.jpg -m models/faster_rcnn_inception_v2_coco/frozen_inference_graph.xml -l /opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/libcpu_extension_sse4.so -d CPU -pt 0.6 -s 4
+```
+It will create the output file [output_image.jpg](/output_image.jpg)
+
 #### To run the faster_rcnn_inception_v2_coco
 
 ```
 python main.py -i resources/Pedestrian_Detect_2_1_1.mp4 -m models/faster_rcnn_inception_v2_coco/frozen_inference_graph.xml -l /opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/libcpu_extension_sse4.so -d CPU -pt 0.8 -s 4 | ffmpeg -v warning -f rawvideo -pixel_format bgr24 -video_size 768x432 -framerate 24 -i - http://0.0.0.0:3004/fac.ffm
 ```
-#### To run the person-detection-retail-0013
-
-```
-python main.py -i resources/Pedestrian_Detect_2_1_1.mp4 -m models/intel/person-detection-retail-0013/FP16/person-detection-retail-0013.xml -l /opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/libcpu_extension_sse4.so -d CPU -pt 0.6 -s 4 | ffmpeg -v warning -f rawvideo -pixel_format bgr24 -video_size 768x432 -framerate 24 -i - http://0.0.0.0:3004/fac.ffm
-```
 
 #### Note: Every time any model is run the results will be updated in [result.txt](result.txt).
 
-If you are in the classroom workspace, use the “Open App” button to view the output. If working locally, to see the output on a web based interface, open the link [http://0.0.0.0:3004](http://0.0.0.0:3004/) in a browser.
+If you are in the classroom workspace, use the “Open App” button to view the output. If working locally, to see the output on a web-based interface, open the link [http://0.0.0.0:3004](http://0.0.0.0:3004/) in a browser.
